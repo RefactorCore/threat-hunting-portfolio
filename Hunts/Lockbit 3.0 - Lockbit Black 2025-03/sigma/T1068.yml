@@ -1,0 +1,46 @@
+title: LockBit 3.0 Privilege Escalation Tooling
+id: 4f8b72d3-a63c-4b3a-97e2-cb21c4e5f32a
+status: experimental
+description: |
+  Detects execution of known local privilege-escalation utilities and
+  command-line patterns (token impersonation, scheduled task creation,
+  silent MSI installs) associated with LockBit 3.0 affiliates gaining
+  administrative rights.
+references:
+  - https://attack.mitre.org/techniques/T1068/
+author: Detection Engineering Portfolio
+date: 2025-03-06
+modified: 2025-03-12
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_image:
+    Image|endswith:
+      - '\exploit.exe'
+      - '\JuicyPotato.exe'
+      - '\PrintSpoofer.exe'
+      - '\msiexec.exe'
+      - '\schtasks.exe'
+  selection_cmdline:
+    CommandLine|contains:
+      - 'SeImpersonatePrivilege'
+      - 'SeAssignPrimaryTokenPrivilege'
+      - 'schtasks /create /tn'
+      - 'msiexec /quiet /qn /i'
+  condition: selection_image and selection_cmdline
+falsepositives:
+  - Legitimate software installers that invoke msiexec with quiet/silent flags
+    (common with enterprise application deployment and auto-updaters).
+  - Scheduled task creation by legitimate applications (e.g. creative/productivity
+    suites that register daily maintenance or update tasks).
+  - Print spooler related processes (e.g. PrintIsolationHost.exe) spawned during
+    normal print subsystem operation, which can superficially resemble
+    PrintSpoofer-style tooling in path-only matching.
+  - Endpoint management or patching agents invoking msiexec/schtasks as part of
+    routine software lifecycle operations.
+level: high
+tags:
+  - attack.privilege_escalation
+  - attack.t1068
+  - ransomware.lockbit
