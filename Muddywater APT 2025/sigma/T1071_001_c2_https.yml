@@ -1,0 +1,76 @@
+title: Suspicious C2 Communication Over HTTPS
+id: 1f2a3b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+status: experimental
+description: |
+  Detects outbound HTTPS connections to domains with historically malicious
+  top-level domains (TLDs), indicating potential command-and-control (C2) communication.
+  
+  Threat actors frequently use free or cheap top-level domains to host command servers:
+  - .ru (Russian domains) - common for Eastern European actors and resellers
+  - .ir (Iran domains) - used by Iranian state-sponsored actors
+  - .gq (Equatorial Guinea free TLD) - highly abused by cybercriminals
+  - .tk (Tokelau free TLD) - frequently used for malicious C2 servers
+  
+  This detection focuses on network protocol (HTTPS port 443) to avoid false positives
+  from legitimate TLS traffic to these TLDs, while flagging suspicious patterns.
+  
+  Note: Domain reputation lists have significant false positive rates. Integration with
+  threat intelligence feeds improves signal quality. This detection should be tuned
+  based on organizational risk tolerance.
+
+references:
+  - https://attack.mitre.org/techniques/T1071/001/
+  - https://attack.mitre.org/techniques/T1071/
+
+author: Detection Engineering Team
+date: 2025-03-25
+modified: 2025-03-26
+
+logsource:
+  category: network_connection
+  product: windows
+
+detection:
+  https_connection:
+    DestinationPort: 443
+    Protocol: 'tcp'
+  
+  malicious_tlds:
+    DestinationDomain|endswith:
+      - '.ru'
+      - '.ir'
+      - '.gq'
+      - '.tk'
+      - '.ml'
+      - '.ga'
+  
+  selection:
+    https_connection
+    malicious_tlds
+  
+  filter_legitimate_russian:
+    DestinationDomain|endswith:
+      - '.yandex.ru'
+      - '.vk.com'
+      - '.rambler.ru'
+      - '.mail.ru'
+  
+  filter_known_benign:
+    DestinationDomain|contains:
+      - 'microsoft.com'
+      - 'google.com'
+      - 'cloudflare.com'
+  
+  condition: selection and not (filter_legitimate_russian or filter_known_benign)
+
+level: medium
+falsepositives:
+  - Legitimate business applications using Russian or Iranian services
+  - Developers accessing repositories or services hosted on these TLDs
+  - VPN or proxy services routing through these countries
+  - Compromised legitimate infrastructure hosted on these TLDs
+  
+tags:
+  - attack.command_and_control
+  - attack.t1071.001
+  - attack.t1071

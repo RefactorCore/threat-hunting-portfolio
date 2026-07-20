@@ -1,0 +1,353 @@
+# Elastic Security (Elasticsearch Query Language) Queries
+
+All queries designed for Elastic Stack with Beats (Filebeat, Auditbeat, Winlogbeat) data. Adjust index names and field mappings based on your Elastic configuration.
+
+## T1566.001 - Spearphishing Attachment
+
+Detects office applications spawning command interpreters.
+
+```kusto
+process.parent.name : ("winword.exe" OR "excel.exe" OR "powerpnt.exe") 
+AND process.name : ("powershell.exe" OR "cmd.exe" OR "wscript.exe" OR "cscript.exe")
+```
+
+### Full Query with Context
+
+```kusto
+index: logs-endpoint.events-* 
+process.parent.name : ("winword.exe" OR "excel.exe" OR "powerpnt.exe") 
+AND process.name : ("powershell.exe" OR "cmd.exe" OR "wscript.exe" OR "cscript.exe")
+| stats count() as event_count, min(timestamp) as first_seen, max(timestamp) as last_seen 
+  by process.parent.name, process.name, host.name
+```
+
+## T1059.001 - Obfuscated PowerShell Execution
+
+Identifies PowerShell processes with encoding and obfuscation indicators.
+
+```kusto
+process.name : "powershell.exe" 
+AND (process.command_line : "-EncodedCommand" 
+  OR process.command_line : "IEX (New-Object Net.WebClient" 
+  OR process.command_line : "Invoke-Expression"
+  OR process.command_line : "[Convert]::FromBase64String"
+  OR process.command_line : "DownloadString")
+```
+
+### Full Query with Context
+
+```kusto
+index: logs-endpoint.events-* 
+process.name : "powershell.exe" 
+AND (process.command_line : "-EncodedCommand" 
+  OR process.command_line : "IEX (New-Object Net.WebClient" 
+  OR process.command_line : "Invoke-Expression"
+  OR process.command_line : "[Convert]::FromBase64String"
+  OR process.command_line : "DownloadString")
+| stats count() as event_count, values(user.name) as users, values(host.name) as devices
+  by process.command_line, host.name, host.os.name
+```
+
+## T1003 - OS Credential Dumping
+
+Detects credential dumping tool execution and specific commands.
+
+```kusto
+(process.parent.name : ("mimikatz.exe" OR "procdump.exe" OR "ntdsutil.exe")
+OR process.command_line : ("sekurlsa::logonpasswords" OR "sekurlsa::ekeys" OR "-ma lsass" OR "lsadump::sam" OR "lsadump::secrets"))
+AND NOT (process.command_line : ("Picus" OR "Qualys" OR "Rapid7" OR "Tenable"))
+```
+
+### Full Query with Context
+
+```kusto
+index: logs-endpoint.events-* 
+(process.parent.name : ("mimikatz.exe" OR "procdump.exe" OR "ntdsutil.exe")
+OR process.command_line : ("sekurlsa::logonpasswords" OR "sekurlsa::ekeys" OR "-ma lsass" OR "lsadump::sam" OR "lsadump::secrets"))
+AND NOT (process.command_line : ("Picus" OR "Qualys" OR "Rapid7" OR "Tenable"))
+| stats count() as event_count, min(timestamp) as first_seen, max(timestamp) as last_seen
+  by process.parent.name, process.command_line, host.name, user.name
+```
+
+## T1574.002 - DLL Side-loading
+
+Identifies suspicious DLL execution from non-standard paths.
+
+```kusto
+file.name : "*.dll" 
+AND (file.path : "*\\Users\\Public\\*" 
+  OR file.path : "*\\Temp\\*" 
+  OR file.path : "*\\ProgramData\\*"
+  OR file.path : "*\\AppData\\Local\\Temp*")
+AND NOT (file.path : ("*Windows Update*" OR "*SoftwareDistribution*" OR "*Microsoft Defender*" OR "*Windows Defender*"))
+```
+
+### Full Query with Context
+
+```kusto
+index: logs-endpoint.events-* 
+file.name : "*.dll" 
+AND (file.path : "*\\Users\\Public\\*" 
+  OR file.path : "*\\Temp\\*" 
+  OR file.path : "*\\ProgramData\\*"
+  OR file.path : "*\\AppData\\Local\\Temp*")
+AND NOT (file.path : ("*Windows Update*" OR "*SoftwareDistribution*" OR "*Microsoft Defender*" OR "*Windows Defender*"))
+| stats count() as event_count, min(timestamp) as first_seen, max(timestamp) as last_seen
+  by file.name, file.path, host.name
+```
+
+## T1071.001 - Suspicious C2 Connections
+
+Detects HTTPS connections to suspicious TLDs.
+
+```kusto
+destination.port : 443 
+AND (destination.domain : "*.ru" 
+  OR destination.domain : "*.ir" 
+  OR destination.domain : "*.gq" 
+  OR destination.domain : "*.tk" 
+  OR destination.domain : "*.ml" 
+  OR destination.domain : "*.ga")
+AND NOT (destination.domain : ("*.yandex.ru" OR "*.vk.com" OR "*.rambler.ru" OR "*.mail.ru" OR "microsoft.com" OR "google.com" OR "cloudflare.com"))
+```
+
+### Full Query with Context
+
+```kusto
+index: logs-endpoint.events-* 
+destination.port : 443 
+AND network.protocol : "https"
+AND (destination.domain : "*.ru" 
+  OR destination.domain : "*.ir" 
+  OR destination.domain : "*.gq" 
+  OR destination.domain : "*.tk" 
+  OR destination.domain : "*.ml" 
+  OR destination.domain : "*.ga")
+AND NOT (destination.domain : ("*.yandex.ru" OR "*.vk.com" OR "*.rambler.ru" OR "*.mail.ru" OR "microsoft.com" OR "google.com" OR "cloudflare.com"))
+| stats count() as connection_count, min(timestamp) as first_seen, max(timestamp) as last_seen,
+  values(process.name) as processes
+  by destination.domain, destination.port, host.name
+```
+
+## T1547.001 - Registry-Based Persistence
+
+Monitors Windows Run registry key modifications.
+
+```kusto
+registry.key : "*Software\\Microsoft\\Windows\\CurrentVersion\\Run*"
+AND event.action : ("RegistryValueSet" OR "RegistryValueModified")
+AND NOT (registry.key : ("*Microsoft Edge Update*" OR "*MicrosoftEdgeAutoLaunch*" OR "*RtkAudUService*" OR "*OneDrive*" OR "*Windows Update*"))
+```
+
+### Full Query with Context
+
+```kusto
+index: logs-endpoint.events-* 
+registry.key : "*Software\\Microsoft\\Windows\\CurrentVersion\\Run*"
+AND event.action : ("RegistryValueSet" OR "RegistryValueModified")
+AND NOT (registry.key : ("*Microsoft Edge Update*" OR "*MicrosoftEdgeAutoLaunch*" OR "*RtkAudUService*" OR "*OneDrive*" OR "*Windows Update*"))
+| stats count() as modification_count, min(timestamp) as first_seen, max(timestamp) as last_seen,
+  values(registry.value) as registry_values
+  by registry.key, registry.path, host.name, process.name, user.name
+```
+
+## T1218 - LOLBin Abuse
+
+Detects Living-off-the-Land Binaries with suspicious command-line parameters.
+
+```kusto
+process.name : ("regsvr32.exe" OR "mshta.exe" OR "rundll32.exe" OR "certutil.exe")
+AND (process.command_line : ("http://" OR "https://" OR "hxxp://" OR "hxxps://") 
+  OR process.command_line : "*.dll*" 
+  OR process.command_line : ("javascript:" OR "vbscript:"))
+AND NOT (process.command_line : ("spool" OR "Prnntfy.dll" OR "pla.dll" OR "printui.dll" OR "ntprint.dll" OR "Windows\\System32" OR "Program Files"))
+```
+
+### Full Query with Context
+
+```kusto
+index: logs-endpoint.events-* 
+process.name : ("regsvr32.exe" OR "mshta.exe" OR "rundll32.exe" OR "certutil.exe")
+AND (process.command_line : ("http://" OR "https://" OR "hxxp://" OR "hxxps://") 
+  OR process.command_line : "*.dll*" 
+  OR process.command_line : ("javascript:" OR "vbscript:"))
+AND NOT (process.command_line : ("spool" OR "Prnntfy.dll" OR "pla.dll" OR "printui.dll" OR "ntprint.dll" OR "Windows\\System32" OR "Program Files"))
+| stats count() as command_count, min(timestamp) as first_seen, max(timestamp) as last_seen
+  by process.name, process.command_line, host.name, user.name
+```
+
+## T1027 - Obfuscation & Encoding
+
+Identifies script execution with obfuscation indicators.
+
+```kusto
+process.name : ("powershell.exe" OR "cscript.exe" OR "wscript.exe" OR "mshta.exe" OR "regsvr32.exe" OR "rundll32.exe")
+AND (process.command_line : "-EncodedCommand" 
+  OR process.command_line : "frombase64string" 
+  OR process.command_line : ("powershell -e " OR "powershell /e " OR "powershell -enc " OR "powershell /enc ")
+  OR process.command_line : "mshta vbscript:" 
+  OR process.command_line : "javascript:" 
+  OR process.command_line : ("[convert]::frombase64" OR "System.Convert" OR "[System.Text.Encoding]"))
+AND NOT (process.command_line : ("Nutanix" OR "VMware" OR "Hyper-V") OR user.name : ("SYSTEM" OR "NETWORK SERVICE"))
+```
+
+### Full Query with Context
+
+```kusto
+index: logs-endpoint.events-* 
+process.name : ("powershell.exe" OR "cscript.exe" OR "wscript.exe" OR "mshta.exe" OR "regsvr32.exe" OR "rundll32.exe")
+AND (process.command_line : "-EncodedCommand" 
+  OR process.command_line : "frombase64string" 
+  OR process.command_line : ("powershell -e " OR "powershell /e " OR "powershell -enc " OR "powershell /enc ")
+  OR process.command_line : "mshta vbscript:" 
+  OR process.command_line : "javascript:" 
+  OR process.command_line : ("[convert]::frombase64" OR "System.Convert" OR "[System.Text.Encoding]"))
+AND NOT (process.command_line : ("Nutanix" OR "VMware" OR "Hyper-V") OR user.name : ("SYSTEM" OR "NETWORK SERVICE"))
+| stats count() as event_count, min(timestamp) as first_seen, max(timestamp) as last_seen
+  by process.name, process.command_line, host.name, user.name
+```
+
+## T1567.002 - Data Exfiltration Over Web
+
+Detects file transfer utilities with web protocols.
+
+```kusto
+process.name : ("curl.exe" OR "wget.exe" OR "ftp.exe")
+AND (process.command_line : ("http://" OR "https://" OR "ftp://" OR "ftps://"))
+AND NOT (user.name : "SYSTEM" AND process.executable : "C:\\Windows\\System32\\*")
+AND NOT (process.command_line : ("Windows Update" OR "Microsoft Update" OR "NuGet"))
+```
+
+### Full Query with Context
+
+```kusto
+index: logs-endpoint.events-* 
+process.name : ("curl.exe" OR "wget.exe" OR "ftp.exe")
+AND (process.command_line : ("http://" OR "https://" OR "ftp://" OR "ftps://"))
+AND NOT (user.name : "SYSTEM" AND process.executable : "C:\\Windows\\System32\\*")
+AND NOT (process.command_line : ("Windows Update" OR "Microsoft Update" OR "NuGet"))
+| stats count() as command_count, min(timestamp) as first_seen, max(timestamp) as last_seen
+  by process.name, process.command_line, host.name, user.name
+```
+
+---
+
+## Kibana Rule Configuration
+
+### Create Detection Rule via API
+
+```bash
+curl -X POST "localhost:9200/.kibana/_doc/_create" \
+-H 'kbn-xsrf: true' \
+-H 'Content-Type: application/json' \
+-d'{
+  "name": "Office Application Spawning Shell Interpreter",
+  "type": "query",
+  "enabled": true,
+  "risk_score": 75,
+  "severity": "high",
+  "rule_type": "query",
+  "query": "process.parent.name : (\"winword.exe\" OR \"excel.exe\" OR \"powerpnt.exe\") AND process.name : (\"powershell.exe\" OR \"cmd.exe\" OR \"wscript.exe\")",
+  "index": ["logs-endpoint.events-*"],
+  "interval": "5m",
+  "from": "now-30m"
+}'
+```
+
+### Detection Rule Configuration
+
+```json
+{
+  "rule": {
+    "name": "T1566.001 - Office Application Spawning Shell",
+    "description": "Detects office applications spawning command interpreters indicating macro execution",
+    "query": "process.parent.name : (\"winword.exe\" OR \"excel.exe\" OR \"powerpnt.exe\") AND process.name : (\"powershell.exe\" OR \"cmd.exe\" OR \"wscript.exe\")",
+    "risk_score": 75,
+    "severity": "high",
+    "rule_type": "threat_match",
+    "interval": "5m",
+    "from": "now-30m",
+    "actions": [
+      {
+        "type": "slack",
+        "notification_action_type_id": "slack",
+        "channel": "#security-alerts",
+        "message": "Office application spawning shell interpreter detected on {{host.name}}"
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Advanced Hunting Queries
+
+### Correlate Multiple Detections in Kill Chain
+
+```kusto
+index: logs-endpoint.events-* 
+(
+  (process.parent.name : ("winword.exe" OR "excel.exe") AND process.name : "powershell.exe")
+  OR (process.name : "powershell.exe" AND process.command_line : "-EncodedCommand")
+  OR (process.command_line : ("sekurlsa::logonpasswords" OR "-ma lsass"))
+)
+| stats count() as event_count, values(event.action) as actions, values(timestamp) as times
+  by host.name, user.name
+| where event_count >= 2
+```
+
+### Hunt for Registry Persistence + Credential Dumping
+
+```kusto
+index: logs-endpoint.events-* 
+(registry.key : "*Software\\Microsoft\\Windows\\CurrentVersion\\Run*" AND event.action : "RegistryValueSet")
+OR (process.command_line : "sekurlsa::logonpasswords")
+| stats count() as event_count, min(timestamp) as first_activity, max(timestamp) as last_activity
+  by host.name, user.name
+| where event_count >= 2
+```
+
+### Network Exfiltration Pattern Detection
+
+```kusto
+index: logs-endpoint.events-* 
+(process.name : ("curl.exe" OR "wget.exe" OR "ftp.exe") AND process.command_line : ("http://" OR "https://"))
+AND destination.domain : ("*.ru" OR "*.ir" OR "*.gq" OR "*.tk")
+| stats count() as connection_count, values(destination.domain) as domains
+  by host.name, user.name, process.command_line
+```
+
+---
+
+## Dashboard Creation
+
+Save this JSON to Kibana Saved Objects for automated dashboard:
+
+```json
+{
+  "type": "dashboard",
+  "id": "muddywater-threat-hunt",
+  "attributes": {
+    "title": "MuddyWater APT Threat Hunt",
+    "description": "Comprehensive detection dashboard for MuddyWater threat actor activities",
+    "panels": [
+      {
+        "visualization_id": "spearphishing-detections",
+        "panelIndex": 1,
+        "gridData": { "x": 0, "y": 0, "w": 24, "h": 15 }
+      },
+      {
+        "visualization_id": "credential-dumping",
+        "panelIndex": 2,
+        "gridData": { "x": 0, "y": 15, "w": 12, "h": 15 }
+      },
+      {
+        "visualization_id": "lolbin-abuse",
+        "panelIndex": 3,
+        "gridData": { "x": 12, "y": 15, "w": 12, "h": 15 }
+      }
+    ]
+  }
+}
+```

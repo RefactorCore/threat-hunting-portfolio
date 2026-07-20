@@ -1,0 +1,98 @@
+title: Living-off-the-Land Binaries (LOLBin) Abuse Detection
+id: 3a4b5c6d-7e8f-9a0b-1c2d-3e4f5a6b7c8d
+status: experimental
+description: |
+  Detects execution of Living-off-the-Land Binaries with suspicious parameters,
+  indicating potential defense evasion or code execution attacks.
+  
+  LOLBins are legitimate Windows utilities frequently abused by threat actors to:
+  - Download and execute remote payloads
+  - Bypass application whitelisting controls
+  - Evade antivirus detection
+  - Execute scripts without spawning typical script interpreters
+  
+  Common LOLBins abused by MuddyWater and similar threat actors:
+  - regsvr32.exe - Register/unregister COM objects (CLSID, JavaScript execution)
+  - mshta.exe - Execute HTML/VBScript (can download and execute remote code)
+  - rundll32.exe - Execute DLL exports (flexible code execution)
+  - certutil.exe - Certificate utility (can download and decode files)
+  
+  Suspicious parameter combinations detected:
+  - HTTP/HTTPS URLs indicating remote payload download
+  - .dll file paths indicating DLL loading/execution
+  - JavaScript: or VBScript: protocol handlers
+  - Obfuscated or encoded command patterns
+  
+  Legitimate exclusions applied for printer drivers and system utilities.
+
+references:
+  - https://attack.mitre.org/techniques/T1218/
+  - https://attack.mitre.org/techniques/T1218/009/
+  - https://attack.mitre.org/techniques/T1218/011/
+
+author: Detection Engineering Team
+date: 2025-03-25
+modified: 2025-03-26
+
+logsource:
+  category: process_creation
+  product: windows
+
+detection:
+  lolbins:
+    Image|endswith:
+      - '\regsvr32.exe'
+      - '\mshta.exe'
+      - '\rundll32.exe'
+      - '\certutil.exe'
+  
+  suspicious_parameters:
+    CommandLine|contains:
+      - 'http://'
+      - 'https://'
+      - 'hxxp://'
+      - 'hxxps://'
+      - '.dll'
+      - 'javascript:'
+      - 'vbscript:'
+      - '-URLCacheFile'
+      - '-f'
+  
+  selection:
+    lolbins
+    suspicious_parameters
+  
+  filter_printer_drivers:
+    CommandLine|contains:
+      - 'spool'
+      - 'Prnntfy.dll'
+      - 'pla.dll'
+      - 'printui.dll'
+      - 'ntprint.dll'
+  
+  filter_legitimate:
+    CommandLine|contains:
+      - 'Windows\System32'
+      - 'Program Files'
+  
+  filter_microsoft:
+    Image|contains:
+      - 'Microsoft'
+      - 'Office'
+  
+  condition: selection and not (filter_printer_drivers or filter_legitimate or filter_microsoft)
+
+level: high
+falsepositives:
+  - Printer subsystem using LOLBins for print driver installation
+  - Windows system utilities legitimate use of these binaries
+  - Microsoft Office background processes
+  - System administration and maintenance tasks
+  - Legitimate developer tools using these binaries
+  
+tags:
+  - attack.defense_evasion
+  - attack.t1218
+  - attack.execution
+  - attack.t1218.009
+  - attack.t1218.011

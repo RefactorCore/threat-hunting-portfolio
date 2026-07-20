@@ -1,0 +1,79 @@
+title: Data Exfiltration Over Web - File Transfer Utilities
+id: 5c6d7e8f-9a0b-1c2d-3e4f-5a6b7c8d9e0f
+status: experimental
+description: |
+  Detects execution of file transfer utilities with web protocols, indicating
+  potential data exfiltration activities.
+  
+  Threat actors use lightweight, legitimate file transfer tools to exfiltrate
+  sensitive data after establishing persistence and accessing valuable information.
+  
+  Common file transfer utilities abused:
+  - curl.exe - Command-line HTTP client
+  - wget.exe - File download utility
+  - ftp.exe - Legacy file transfer protocol
+  
+  This detection focuses on:
+  - Unusual execution of file transfer utilities from user contexts
+  - Command-line arguments indicating web/network protocols
+  - Correlation with credential access and lateral movement activities
+  - Timing patterns (exfiltration often occurs during low-activity hours)
+  
+  Data exfiltration represents the final stage of the attack lifecycle and
+  indicates substantial compromise - successful lateral movement and access to
+  sensitive data repositories.
+
+references:
+  - https://attack.mitre.org/techniques/T1567/002/
+  - https://attack.mitre.org/techniques/T1567/
+
+author: Detection Engineering Team
+date: 2025-03-25
+modified: 2025-03-26
+
+logsource:
+  category: process_creation
+  product: windows
+
+detection:
+  file_transfer_tools:
+    Image|endswith:
+      - '\curl.exe'
+      - '\wget.exe'
+      - '\ftp.exe'
+  
+  web_protocols:
+    CommandLine|contains:
+      - 'http://'
+      - 'https://'
+      - 'ftp://'
+      - 'ftps://'
+  
+  selection:
+    file_transfer_tools
+    web_protocols
+  
+  filter_system:
+    User: 'SYSTEM'
+    Image|contains:
+      - 'C:\Windows\System32'
+  
+  filter_legitimate:
+    CommandLine|contains:
+      - 'Windows Update'
+      - 'Microsoft Update'
+      - 'NuGet'
+  
+  condition: selection and not (filter_system or filter_legitimate)
+
+level: high
+falsepositives:
+  - System administrators using curl/wget for legitimate file transfers
+  - Legitimate software updates using these utilities
+  - Developers testing APIs with curl
+  - Package managers using file transfer utilities
+  
+tags:
+  - attack.exfiltration
+  - attack.t1567.002
+  - attack.t1567

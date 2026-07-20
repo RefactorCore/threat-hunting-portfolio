@@ -1,0 +1,72 @@
+title: Suspicious DLL Execution from Non-Standard Paths - DLL Side-Loading
+id: 7b3c2d1a-4e5f-6a7b-8c9d-0e1f2a3b4c5d
+status: experimental
+description: |
+  Detects execution of DLL files from suspicious directories, indicating potential
+  DLL side-loading attacks.
+  
+  DLL side-loading is a defense evasion technique where threat actors place a malicious
+  DLL alongside a legitimate application that loads it by default. Common targets include:
+  - Updates to legitimate software (antivirus, browsers, office)
+  - Third-party applications with poor DLL loading security
+  - Windows utilities with relative DLL loading paths
+  
+  This detection identifies DLL execution from non-standard paths:
+  - C:\Users\Public\ (universally writable)
+  - C:\Temp\ (commonly writable, staging area)
+  - C:\ProgramData\ (shared writable location)
+  - User TEMP directories used for malware staging
+  
+  Side-loading attacks often pair legitimate executables (regsvr32, rundll32, mshta)
+  with malicious DLLs to execute code with low detection signatures.
+
+references:
+  - https://attack.mitre.org/techniques/T1574/002/
+  - https://attack.mitre.org/techniques/T1574/
+
+author: Detection Engineering Team
+date: 2025-03-25
+modified: 2025-03-26
+
+logsource:
+  category: file_event
+  product: windows
+
+detection:
+  dll_execution:
+    FileName|endswith: '.dll'
+  
+  suspicious_paths:
+    FilePath|contains:
+      - '\Users\Public\'
+      - '\Temp\'
+      - '\ProgramData\'
+      - 'C:\$Recycle.Bin\'
+  
+  selection:
+    dll_execution
+    suspicious_paths
+  
+  filter_updates:
+    FilePath|contains:
+      - 'Windows Update'
+      - 'SoftwareDistribution'
+  
+  filter_antivirus:
+    FilePath|contains:
+      - 'Microsoft Defender'
+      - 'Windows Defender'
+  
+  condition: selection and not (filter_updates or filter_antivirus)
+
+level: high
+falsepositives:
+  - Windows Update staging DLLs in temporary directories
+  - Antivirus quarantine and scanning of DLLs
+  - Legitimate application installations extracting DLLs to Temp
+  - Software vendors legitimately storing DLLs in ProgramData
+  
+tags:
+  - attack.defense_evasion
+  - attack.t1574.002
+  - attack.persistence

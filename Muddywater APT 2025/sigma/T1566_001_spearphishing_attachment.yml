@@ -1,0 +1,63 @@
+title: Office Application Spawning Command Interpreter - Spearphishing
+id: 3f3b2d8a-1c4e-4d5e-9f6a-7b8c9d0e1f2a
+status: experimental
+description: |
+  Detects office applications (Word, Excel, PowerPoint) spawning command interpreters.
+  This pattern indicates potential exploitation of macros or embedded objects for 
+  malicious command execution following phishing attachment delivery.
+  
+  Threat actors frequently use spearphishing emails with weaponized Office documents
+  containing malicious macros or embedded scripts. When users open these documents,
+  the macro/script executes and spawns command shells (PowerShell, CMD, Wscript) to
+  download and execute additional payloads.
+
+references:
+  - https://attack.mitre.org/techniques/T1566/001/
+  - https://attack.mitre.org/techniques/T1566/
+
+author: Detection Engineering Team
+date: 2025-03-25
+modified: 2025-03-26
+
+logsource:
+  category: process_creation
+  product: windows
+
+detection:
+  office_process:
+    ParentImage|endswith:
+      - '\winword.exe'
+      - '\excel.exe'
+      - '\powerpnt.exe'
+  interpreter_spawned:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\cmd.exe'
+      - '\wscript.exe'
+      - '\cscript.exe'
+  selection:
+    office_process
+    interpreter_spawned
+  
+  filter_office_updates:
+    ParentCommandLine|contains: '/update'
+  
+  filter_office_plugins:
+    Image|endswith: '\WINWORD.EXE'
+    CommandLine|contains:
+      - 'Startup'
+      - 'AddIn'
+  
+  condition: selection and not (filter_office_updates or filter_office_plugins)
+
+level: high
+falsepositives:
+  - Legitimate Office add-ins or extensions launching shell interpreters
+  - Office update processes spawning child processes
+  - Authorized IT operations launching scripts from Office documents
+  
+tags:
+  - attack.initial_access
+  - attack.t1566.001
+  - attack.execution
+  - attack.t1059.001

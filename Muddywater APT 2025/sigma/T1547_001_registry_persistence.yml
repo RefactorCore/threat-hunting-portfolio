@@ -1,0 +1,83 @@
+title: Registry Run Key Modification for Persistence
+id: 2c3d4e5f-6a7b-8c9d-0e1f-2a3b4c5d6e7f
+status: experimental
+description: |
+  Detects modifications to Windows Run registry keys used to establish persistence.
+  
+  The Windows Run registry key is a common persistence mechanism where threat actors
+  add entries to automatically execute malicious executables when users log in or
+  systems boot.
+  
+  Target registry keys:
+  - HKLM\Software\Microsoft\Windows\CurrentVersion\Run (all users)
+  - HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnce (single boot)
+  - HKCU\Software\Microsoft\Windows\CurrentVersion\Run (current user)
+  
+  This detection monitors for:
+  - New registry key entries pointing to suspicious executables
+  - Modifications to existing Run keys with unusual command-line arguments
+  - Network-based executables (UNC paths, HTTP URLs)
+  - Obfuscated or encoded commands
+  
+  Legitimate exclusions applied for known Windows services and utilities.
+
+references:
+  - https://attack.mitre.org/techniques/T1547/001/
+  - https://attack.mitre.org/techniques/T1547/
+
+author: Detection Engineering Team
+date: 2025-03-25
+modified: 2025-03-26
+
+logsource:
+  category: registry_event
+  product: windows
+
+detection:
+  registry_key:
+    RegistryKeyPath|contains:
+      - 'Software\Microsoft\Windows\CurrentVersion\Run'
+  
+  key_modified:
+    ActionType:
+      - 'RegistryValueSet'
+      - 'RegistryValueModified'
+  
+  selection:
+    registry_key
+    key_modified
+  
+  filter_microsoft_edge:
+    RegistryKeyPath|contains: 'Microsoft Edge'
+  
+  filter_windows_components:
+    RegistryKeyPath|contains:
+      - 'MicrosoftEdgeAutoLaunch'
+      - 'OneDrive'
+      - 'WindowsUpdate'
+      - 'ccleaner'
+  
+  filter_audio_services:
+    RegistryKeyPath|contains:
+      - 'RtkAudUService'
+      - 'RealTekAudio'
+  
+  filter_legitimate_services:
+    RegistryValue|contains:
+      - 'C:\Windows\System32\'
+      - 'C:\Program Files\'
+  
+  condition: selection and not (filter_microsoft_edge or filter_windows_components or filter_audio_services or filter_legitimate_services)
+
+level: high
+falsepositives:
+  - Microsoft Edge automatic update entries
+  - OneDrive synchronization components
+  - Audio driver services (Realtek)
+  - Windows Update and maintenance tasks
+  - Legitimate software installation and updates
+  
+tags:
+  - attack.persistence
+  - attack.t1547.001
+  - attack.boot_or_logon_autostart_execution

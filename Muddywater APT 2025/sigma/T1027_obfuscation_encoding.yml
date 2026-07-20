@@ -1,0 +1,89 @@
+title: Obfuscation and Encoding - Command-Line Indicators
+id: 4b5c6d7e-8f9a-0b1c-2d3e-4f5a6b7c8d9e
+status: experimental
+description: |
+  Detects script execution with obfuscation and encoding indicators suggesting
+  attempts to evade detection and analysis.
+  
+  Threat actors extensively obfuscate malicious code to:
+  - Evade antivirus signature detection
+  - Bypass intrusion detection systems
+  - Prevent manual code analysis by defenders
+  - Obscure command intent and payload download locations
+  
+  Common obfuscation techniques detected:
+  - Base64 encoding/decoding (FromBase64String)
+  - String concatenation and variable expansion
+  - PowerShell encoding parameters (-e, /e)
+  - VBScript and JavaScript protocol handlers
+  - Variable obfuscation and aliasing
+  
+  This detection monitors script interpreters that are commonly used in multi-stage
+  malware execution chains where Stage 1 (dropper) is obfuscated and downloads
+  Stage 2 (main payload).
+
+references:
+  - https://attack.mitre.org/techniques/T1027/
+  - https://attack.mitre.org/techniques/T1027/001/
+
+author: Detection Engineering Team
+date: 2025-03-25
+modified: 2025-03-26
+
+logsource:
+  category: process_creation
+  product: windows
+
+detection:
+  script_interpreter:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\cscript.exe'
+      - '\wscript.exe'
+      - '\mshta.exe'
+      - '\regsvr32.exe'
+      - '\rundll32.exe'
+  
+  obfuscation_indicators:
+    CommandLine|contains:
+      - '-EncodedCommand'
+      - 'frombase64string'
+      - 'powershell -e '
+      - 'powershell /e '
+      - 'powershell -enc'
+      - 'powershell /enc'
+      - 'mshta vbscript:'
+      - 'javascript:'
+      - '[convert]::frombase64'
+      - 'System.Convert'
+      - '[System.Text.Encoding]'
+  
+  selection:
+    script_interpreter
+    obfuscation_indicators
+  
+  filter_legitimate_encoding:
+    CommandLine|contains:
+      - 'Nutanix'
+      - 'VMware'
+      - 'Hyper-V'
+  
+  filter_admin_scripts:
+    User|contains:
+      - 'SYSTEM'
+      - 'NETWORK SERVICE'
+  
+  condition: selection and not (filter_legitimate_encoding or filter_admin_scripts)
+
+level: high
+falsepositives:
+  - Legitimate PowerShell scripts using encoding for secure credential transmission
+  - Administrator scripts with encoded parameters
+  - Virtualization platform (Nutanix, VMware, Hyper-V) background processes
+  - Configuration management tools using encoding for sensitive data
+  - System administration automation using encoded commands
+  
+tags:
+  - attack.defense_evasion
+  - attack.t1027
+  - attack.t1027.001

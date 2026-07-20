@@ -1,0 +1,285 @@
+# Microsoft Sentinel KQL Queries
+
+All queries are designed for the Defender for Endpoint data connector. Adjust table names if using different data sources (Sysmon, Windows Security Events, etc.).
+
+## T1566.001 - Spearphishing Attachment
+
+Detects office applications spawning command interpreters, indicating macro or embedded script execution.
+
+```kusto
+DeviceProcessEvents
+| where InitiatingProcessFileName in ("winword.exe", "excel.exe", "powerpnt.exe")
+| where FileName in ("powershell.exe", "cmd.exe", "wscript.exe", "cscript.exe")
+| summarize 
+    CommandCount=count(),
+    FirstSeen=min(Timestamp),
+    LastSeen=max(Timestamp)
+    by InitiatingProcessFileName, FileName, DeviceName, FolderPath
+| where CommandCount >= 1
+| sort by CommandCount desc
+```
+
+## T1059.001 - Obfuscated PowerShell Execution
+
+Identifies PowerShell processes with encoding and obfuscation indicators.
+
+```kusto
+DeviceProcessEvents
+| where InitiatingProcessFileName == "powershell.exe"
+| where ProcessCommandLine contains "-EncodedCommand" 
+    or ProcessCommandLine contains "IEX (New-Object Net.WebClient" 
+    or ProcessCommandLine contains "Invoke-Expression"
+    or ProcessCommandLine contains "[Convert]::FromBase64String"
+    or ProcessCommandLine contains "DownloadString"
+| summarize 
+    EventCount=count(),
+    Devices=dcount(DeviceName),
+    Users=dcount(AccountName)
+    by ProcessCommandLine, DeviceName, DeviceOs, AccountName
+| where EventCount >= 1
+| sort by EventCount desc
+```
+
+## T1003 - OS Credential Dumping
+
+Detects credential dumping tool execution and specific credential dumping commands.
+
+```kusto
+DeviceProcessEvents
+| where InitiatingProcessFileName in ("mimikatz.exe", "procdump.exe", "ntdsutil.exe")
+    or ProcessCommandLine contains "sekurlsa::logonpasswords"
+    or ProcessCommandLine contains "sekurlsa::ekeys"
+    or ProcessCommandLine contains "-ma lsass"
+    or ProcessCommandLine contains "lsadump::sam"
+    or ProcessCommandLine contains "lsadump::secrets"
+| where not(ProcessCommandLine has_any ("Picus", "Qualys", "Rapid7", "Tenable"))
+| summarize 
+    CommandCount=count(),
+    FirstSeen=min(Timestamp),
+    LastSeen=max(Timestamp)
+    by InitiatingProcessFileName, ProcessCommandLine, DeviceName, AccountName
+| where CommandCount >= 1
+| sort by CommandCount desc
+```
+
+## T1574.002 - DLL Side-loading
+
+Identifies suspicious DLL execution from non-standard paths.
+
+```kusto
+DeviceFileEvents
+| where FileName endswith ".dll"
+| where FolderPath contains "\\Users\\Public\\" 
+    or FolderPath contains "\\Temp\\"
+    or FolderPath contains "\\ProgramData\\"
+    or FolderPath contains "\\AppData\\Local\\Temp"
+| where not(FolderPath has_any ("Windows Update", "SoftwareDistribution", "Microsoft Defender", "Windows Defender"))
+| summarize 
+    FileCount=count(),
+    FirstSeen=min(Timestamp),
+    LastSeen=max(Timestamp)
+    by FileName, FolderPath, DeviceName
+| where FileCount >= 1
+| sort by FileCount desc
+```
+
+## T1047.001 - Suspicious C2 Connections
+
+Detects HTTPS connections to suspicious domains and TLDs.
+
+```kusto
+DeviceNetworkEvents
+| where RemotePort == 443
+| where RemoteUrl endswith ".ru" 
+    or RemoteUrl endswith ".ir"
+    or RemoteUrl endswith ".gq"
+    or RemoteUrl endswith ".tk"
+    or RemoteUrl endswith ".ml"
+    or RemoteUrl endswith ".ga"
+| where not(RemoteUrl has_any (".yandex.ru", ".vk.com", ".rambler.ru", ".mail.ru", "microsoft.com", "google.com", "cloudflare.com"))
+| summarize 
+    ConnectionCount=count(),
+    FirstSeen=min(Timestamp),
+    LastSeen=max(Timestamp)
+    by RemoteUrl, RemotePort, DeviceName, InitiatingProcessFileName
+| where ConnectionCount >= 1
+| sort by ConnectionCount desc
+```
+
+## T1547.001 - Registry-Based Persistence
+
+Monitors Windows Run registry key modifications.
+
+```kusto
+DeviceRegistryEvents
+| where RegistryKeyPath contains "Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+| where ActionType in ("RegistryValueSet", "RegistryValueModified")
+| where not(RegistryKeyPath has_any (
+    "Microsoft Edge Update",
+    "MicrosoftEdgeAutoLaunch",
+    "RtkAudUService",
+    "OneDrive",
+    "Windows Update",
+    "WindowsUpdate"
+))
+| summarize 
+    ModificationCount=count(),
+    FirstSeen=min(Timestamp),
+    LastSeen=max(Timestamp)
+    by RegistryKeyPath, RegistryValueName, RegistryValueData, DeviceName, InitiatingProcessFileName
+| where ModificationCount >= 1
+| sort by ModificationCount desc
+```
+
+## T1218 - LOLBin Abuse
+
+Detects execution of Living-off-the-Land Binaries with suspicious parameters.
+
+```kusto
+DeviceProcessEvents
+| where FileName in ("regsvr32.exe", "mshta.exe", "rundll32.exe", "certutil.exe")
+| where ProcessCommandLine contains "http://"
+    or ProcessCommandLine contains "https://"
+    or ProcessCommandLine contains "hxxp://"
+    or ProcessCommandLine contains "hxxps://"
+    or ProcessCommandLine contains ".dll"
+    or ProcessCommandLine contains "javascript:"
+    or ProcessCommandLine contains "vbscript:"
+| where not(ProcessCommandLine has_any (
+    "spool",
+    "Prnntfy.dll",
+    "pla.dll",
+    "printui.dll",
+    "ntprint.dll",
+    "Windows\\System32",
+    "Program Files"
+))
+| summarize 
+    CommandCount=count(),
+    Devices=dcount(DeviceName),
+    FirstSeen=min(Timestamp)
+    by FileName, ProcessCommandLine, DeviceName, AccountName
+| where CommandCount >= 1
+| sort by CommandCount desc
+```
+
+## T1027 - Obfuscation & Encoding
+
+Identifies script execution with obfuscation indicators.
+
+```kusto
+DeviceProcessEvents
+| where FileName in ("powershell.exe", "cscript.exe", "wscript.exe", "mshta.exe", "regsvr32.exe", "rundll32.exe")
+| where ProcessCommandLine contains "-EncodedCommand"
+    or ProcessCommandLine contains "frombase64string"
+    or ProcessCommandLine contains "powershell -e"
+    or ProcessCommandLine contains "powershell /e"
+    or ProcessCommandLine contains "powershell -enc"
+    or ProcessCommandLine contains "powershell /enc"
+    or ProcessCommandLine contains "mshta vbscript:"
+    or ProcessCommandLine contains "javascript:"
+    or ProcessCommandLine contains "[convert]::frombase64"
+    or ProcessCommandLine contains "System.Convert"
+| where not(ProcessCommandLine has_any (
+    "Nutanix",
+    "VMware",
+    "Hyper-V",
+    "SYSTEM",
+    "NETWORK SERVICE"
+))
+| summarize 
+    EventCount=count(),
+    FirstSeen=min(Timestamp),
+    LastSeen=max(Timestamp)
+    by FileName, ProcessCommandLine, DeviceName, AccountName
+| where EventCount >= 1
+| sort by EventCount desc
+```
+
+## T1567.002 - Data Exfiltration Over Web
+
+Detects file transfer utilities with web protocols.
+
+```kusto
+DeviceProcessEvents
+| where FileName in ("curl.exe", "wget.exe", "ftp.exe")
+| where ProcessCommandLine contains "http://"
+    or ProcessCommandLine contains "https://"
+    or ProcessCommandLine contains "ftp://"
+    or ProcessCommandLine contains "ftps://"
+| where not(AccountName == "SYSTEM" and InitiatingProcessFolderPath contains "C:\\Windows\\System32")
+| where not(ProcessCommandLine has_any ("Windows Update", "Microsoft Update", "NuGet"))
+| summarize 
+    CommandCount=count(),
+    FirstSeen=min(Timestamp),
+    LastSeen=max(Timestamp)
+    by FileName, ProcessCommandLine, DeviceName, AccountName
+| where CommandCount >= 1
+| sort by CommandCount desc
+```
+
+---
+
+## Query Tuning Notes
+
+### Performance Optimization
+
+- Filter by `Timestamp` for specific time ranges to improve query performance:
+  ```kusto
+  | where Timestamp between(ago(30d) .. now())
+  ```
+
+- Use `DeviceName` filters if you have known scope:
+  ```kusto
+  | where DeviceName in ("device1", "device2", "device3")
+  ```
+
+### Integration with Alerts
+
+Create detection rules from these queries with:
+- Severity: High
+- Alert threshold: 1 (flag on first detection)
+- Response: Immediate investigation
+- Exclusion groups: Whitelisted processes, approved administrators
+
+### False Positive Management
+
+Maintain exclusion lists for:
+- Security testing tools (Picus, Qualys, Rapid7, Tenable)
+- IT administration teams and their common scripts
+- Approved security operations procedures
+- Known legitimate utilities in your environment
+
+---
+
+## Advanced Hunting Examples
+
+### Correlate Multiple Detections (Kill Chain)
+
+```kusto
+// Identify potential compromises showing multiple kill chain steps
+let T1566 = DeviceProcessEvents
+    | where InitiatingProcessFileName in ("winword.exe", "excel.exe", "powerpnt.exe")
+    | where FileName in ("powershell.exe", "cmd.exe", "wscript.exe");
+let T1059 = DeviceProcessEvents
+    | where FileName == "powershell.exe"
+    | where ProcessCommandLine contains "-EncodedCommand" or ProcessCommandLine contains "IEX";
+T1566
+| join kind=inner (T1059) on DeviceName
+| summarize by DeviceName, TimeGenerated
+```
+
+### Hunt for Scheduled Task Persistence Combined with Credential Dumping
+
+```kusto
+let CredDump = DeviceProcessEvents
+    | where ProcessCommandLine contains "sekurlsa::logonpasswords" or ProcessCommandLine contains "-ma lsass"
+    | project DeviceName, AccountName, Timestamp;
+let ScheduledTask = DeviceProcessEvents
+    | where ProcessCommandLine contains "schtasks" and ProcessCommandLine contains "/create"
+    | project DeviceName, AccountName, Timestamp;
+CredDump
+| join kind=inner (ScheduledTask) on DeviceName, AccountName
+| where Timestamp1 < Timestamp
+| summarize by DeviceName, AccountName
+```

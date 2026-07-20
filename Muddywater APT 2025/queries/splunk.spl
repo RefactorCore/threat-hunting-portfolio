@@ -1,0 +1,277 @@
+# Splunk SPL Queries
+
+All queries designed for Windows event log data. Adjust index, sourcetype, and field names based on your Splunk configuration.
+
+## T1566.001 - Spearphishing Attachment
+
+Identifies office applications spawning command interpreters.
+
+```spl
+index=main sourcetype=WinEventLog:Security EventCode=1
+parent_process_name IN (winword.exe, excel.exe, powerpnt.exe)
+process_name IN (powershell.exe, cmd.exe, wscript.exe, cscript.exe)
+| stats count as event_count, min(_time) as first_seen, max(_time) as last_seen
+    by parent_process_name, process_name, host, process_path
+| where event_count >= 1
+| sort - event_count
+```
+
+## T1059.001 - Obfuscated PowerShell Execution
+
+Detects PowerShell processes with encoding and obfuscation indicators.
+
+```spl
+index=main sourcetype=WinEventLog:Security EventCode=1 process_name=powershell.exe
+(process_command_line="*-EncodedCommand*" OR
+ process_command_line="*IEX (New-Object Net.WebClient*" OR
+ process_command_line="*Invoke-Expression*" OR
+ process_command_line="*[Convert]::FromBase64String*" OR
+ process_command_line="*DownloadString*")
+| stats count as event_count, min(_time) as first_seen, max(_time) as last_seen,
+    values(user) as users, values(host) as devices
+    by process_command_line, host, os
+| where event_count >= 1
+| sort - event_count
+```
+
+## T1003 - OS Credential Dumping
+
+Identifies credential dumping tool execution and commands.
+
+```spl
+index=main sourcetype=WinEventLog:Security EventCode=1
+(parent_process_name IN (mimikatz.exe, procdump.exe, ntdsutil.exe) OR
+ process_command_line="*sekurlsa::logonpasswords*" OR
+ process_command_line="*sekurlsa::ekeys*" OR
+ process_command_line="*-ma lsass*" OR
+ process_command_line="*lsadump::sam*" OR
+ process_command_line="*lsadump::secrets*")
+NOT (process_command_line="*Picus*" OR process_command_line="*Qualys*" OR
+     process_command_line="*Rapid7*" OR process_command_line="*Tenable*")
+| stats count as event_count, min(_time) as first_seen, max(_time) as last_seen
+    by parent_process_name, process_command_line, host, user
+| where event_count >= 1
+| sort - event_count
+```
+
+## T1574.002 - DLL Side-loading
+
+Detects suspicious DLL execution from non-standard paths.
+
+```spl
+index=main sourcetype=WinEventLog:Sysmon EventCode=3
+file_name="*.dll"
+(file_path="*\\Users\\Public\\*" OR
+ file_path="*\\Temp\\*" OR
+ file_path="*\\ProgramData\\*" OR
+ file_path="*\\AppData\\Local\\Temp*")
+NOT (file_path="*Windows Update*" OR file_path="*SoftwareDistribution*" OR
+     file_path="*Microsoft Defender*" OR file_path="*Windows Defender*")
+| stats count as event_count, min(_time) as first_seen, max(_time) as last_seen
+    by file_name, file_path, host
+| where event_count >= 1
+| sort - event_count
+```
+
+## T1071.001 - Suspicious C2 Connections
+
+Identifies HTTPS connections to suspicious TLDs.
+
+```spl
+index=main sourcetype=WinEventLog:Security EventCode=5156 Direction=Outbound
+DestinationPort=443 Protocol=tcp
+(DestinationDomain="*.ru" OR DestinationDomain="*.ir" OR
+ DestinationDomain="*.gq" OR DestinationDomain="*.tk" OR
+ DestinationDomain="*.ml" OR DestinationDomain="*.ga")
+NOT (DestinationDomain="*.yandex.ru" OR DestinationDomain="*.vk.com" OR
+     DestinationDomain="*.rambler.ru" OR DestinationDomain="*.mail.ru" OR
+     DestinationDomain IN ("microsoft.com", "google.com", "cloudflare.com"))
+| stats count as connection_count, min(_time) as first_seen, max(_time) as last_seen,
+    values(process_name) as processes
+    by DestinationDomain, DestinationPort, host
+| where connection_count >= 1
+| sort - connection_count
+```
+
+## T1547.001 - Registry-Based Persistence
+
+Monitors Windows Run registry key modifications.
+
+```spl
+index=main sourcetype=WinEventLog:Sysmon EventCode=13
+RegistryKey="*Software\\Microsoft\\Windows\\CurrentVersion\\Run*"
+NOT (RegistryKey="*Microsoft Edge Update*" OR
+     RegistryKey="*MicrosoftEdgeAutoLaunch*" OR
+     RegistryKey="*RtkAudUService*" OR
+     RegistryKey="*OneDrive*" OR
+     RegistryKey="*Windows Update*" OR
+     RegistryKey="*WindowsUpdate*")
+| stats count as modification_count, min(_time) as first_seen, max(_time) as last_seen
+    by RegistryKey, RegistryKeyPath, RegistryValue, host, process_name, user
+| where modification_count >= 1
+| sort - modification_count
+```
+
+## T1218 - LOLBin Abuse
+
+Detects LOLBins with suspicious command-line parameters.
+
+```spl
+index=main sourcetype=WinEventLog:Security EventCode=1
+process_name IN (regsvcs.exe, regasm.exe, mshta.exe, rundll32.exe, certutil.exe, certreq.exe)
+(process_command_line="*http://*" OR process_command_line="*https://*" OR
+ process_command_line="*hxxp://*" OR process_command_line="*hxxps://*" OR
+ process_command_line="*.dll*" OR process_command_line="*javascript:*" OR
+ process_command_line="*vbscript:*")
+NOT (process_command_line="*spool*" OR process_command_line="*Prnntfy.dll*" OR
+     process_command_line="*pla.dll*" OR process_command_line="*printui.dll*" OR
+     process_command_line="*Windows\\System32*" OR process_command_line="*Program Files*")
+| stats count as command_count, min(_time) as first_seen, max(_time) as last_seen
+    by process_name, process_command_line, host, user
+| where command_count >= 1
+| sort - command_count
+```
+
+## T1027 - Obfuscation & Encoding
+
+Identifies script execution with obfuscation indicators.
+
+```spl
+index=main sourcetype=WinEventLog:Security EventCode=1
+process_name IN (powershell.exe, cscript.exe, wscript.exe, mshta.exe, regsvr32.exe, rundll32.exe)
+(process_command_line="*-EncodedCommand*" OR
+ process_command_line="*frombase64string*" OR
+ process_command_line="*powershell -e*" OR
+ process_command_line="*powershell /e*" OR
+ process_command_line="*powershell -enc*" OR
+ process_command_line="*powershell /enc*" OR
+ process_command_line="*mshta vbscript:*" OR
+ process_command_line="*javascript:*" OR
+ process_command_line="*[convert]::frombase64*" OR
+ process_command_line="*System.Convert*")
+NOT (process_command_line="*Nutanix*" OR process_command_line="*VMware*" OR
+     process_command_line="*Hyper-V*" OR user="SYSTEM" OR user="NETWORK SERVICE")
+| stats count as event_count, min(_time) as first_seen, max(_time) as last_seen
+    by process_name, process_command_line, host, user
+| where event_count >= 1
+| sort - event_count
+```
+
+## T1567.002 - Data Exfiltration Over Web
+
+Detects file transfer utilities with web protocols.
+
+```spl
+index=main sourcetype=WinEventLog:Security EventCode=1
+process_name IN (curl.exe, wget.exe, ftp.exe)
+(process_command_line="*http://*" OR
+ process_command_line="*https://*" OR
+ process_command_line="*ftp://*" OR
+ process_command_line="*ftps://*")
+NOT (user="SYSTEM" AND process_path="C:\\Windows\\System32\\*") AND
+NOT (process_command_line="*Windows Update*" OR process_command_line="*Microsoft Update*" OR
+     process_command_line="*NuGet*")
+| stats count as command_count, min(_time) as first_seen, max(_time) as last_seen
+    by process_name, process_command_line, host, user
+| where command_count >= 1
+| sort - command_count
+```
+
+---
+
+## Query Optimization Tips
+
+### Time Window Filtering
+
+Add time constraints to improve performance:
+
+```spl
+index=main sourcetype=WinEventLog:Security earliest=-30d@d latest=now() EventCode=1
+parent_process_name IN (winword.exe, excel.exe, powerpnt.exe)
+process_name IN (powershell.exe, cmd.exe, wscript.exe)
+```
+
+### Reduce Query Scope
+
+Filter by hostname or asset group:
+
+```spl
+index=main host IN (server1, server2, server3, server4)
+sourcetype=WinEventLog:Security EventCode=1
+```
+
+### Data Model Acceleration
+
+Use Splunk Data Models for faster execution:
+
+```spl
+| from datamodel: Endpoint.Processes
+| search parent_process="winword.exe" process="powershell.exe"
+| stats count by host, user
+```
+
+---
+
+## Alert Configuration
+
+### Create Detection Alert
+
+1. Save search as alert
+2. Configure trigger: `When result count > 0`
+3. Set severity: High
+4. Notification: Email/Slack to SOC team
+5. Add context fields: host, user, process_command_line
+
+### Example Alert Creation
+
+```spl
+index=main sourcetype=WinEventLog:Security EventCode=1
+parent_process_name IN (winword.exe, excel.exe, powerpnt.exe)
+process_name IN (powershell.exe, cmd.exe, wscript.exe)
+| stats count as EventCount, values(process_command_line) as Commands,
+    values(user) as Users, values(host) as Hosts
+    by parent_process_name, process_name
+| where EventCount > 0
+```
+
+Set Alert Action:
+- Alert Name: "Spearphishing Attachment - Office Spawning Shell"
+- Severity: High
+- Trigger on: EventCount > 0
+- Throttle: 1 incident per 30 minutes per host
+
+---
+
+## Hunting Dashboards
+
+Create a dashboard combining multiple detections:
+
+```spl
+<dashboard>
+  <label>MuddyWater APT Threat Hunt</label>
+  <row>
+    <panel>
+      <title>Spearphishing Detection</title>
+      <single>
+        <search>
+          <query>index=main sourcetype=WinEventLog:Security EventCode=1
+          parent_process_name IN (winword.exe, excel.exe, powerpnt.exe)
+          process_name IN (powershell.exe, cmd.exe, wscript.exe)
+          | stats count</query>
+        </search>
+      </single>
+    </panel>
+    <panel>
+      <title>Credential Dumping Events</title>
+      <single>
+        <search>
+          <query>index=main sourcetype=WinEventLog:Security EventCode=1
+          process_command_line="*sekurlsa::logonpasswords*"
+          NOT process_command_line="*Picus*"
+          | stats count</query>
+        </search>
+      </single>
+    </panel>
+  </row>
+</dashboard>
+```

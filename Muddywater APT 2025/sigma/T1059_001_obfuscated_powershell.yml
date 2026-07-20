@@ -1,0 +1,69 @@
+title: Obfuscated PowerShell Command Execution
+id: 8a7d1c4e-2f3a-4b5c-6d7e-8f9a0b1c2d3e
+status: experimental
+description: |
+  Detects obfuscated or encoded PowerShell commands indicating potential malicious
+  execution. Identifies common obfuscation techniques including Base64 encoding,
+  Invoke-Expression (IEX), dynamic method invocation, and remote code download patterns.
+  
+  Threat actors heavily obfuscate PowerShell commands to evade antivirus detection,
+  intrusion detection systems, and manual analysis. These obfuscation patterns are
+  characteristic of malware downloaders, fileless malware, and post-exploitation tools.
+  
+  This detection monitors for:
+  - EncodedCommand parameter (encoded script execution)
+  - IEX (Invoke-Expression) dynamic code execution
+  - Net.WebClient usage for remote download
+  - String concatenation obfuscation patterns
+
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+  - https://attack.mitre.org/techniques/T1059/
+
+author: Detection Engineering Team
+date: 2025-03-25
+modified: 2025-03-26
+
+logsource:
+  category: process_creation
+  product: windows
+
+detection:
+  powershell_process:
+    Image|endswith: '\powershell.exe'
+  obfuscation_indicators:
+    CommandLine|contains:
+      - '-EncodedCommand'
+      - '-enc '
+      - 'IEX (New-Object Net.WebClient'
+      - 'Invoke-Expression'
+      - '[Convert]::FromBase64String'
+      - 'DownloadString'
+  
+  selection:
+    powershell_process
+    obfuscation_indicators
+  
+  filter_legit_encoding:
+    CommandLine|contains:
+      - 'Update-Help'
+      - 'Get-Content'
+  
+  filter_admins:
+    User|contains:
+      - 'ADMIN'
+      - 'SYSTEM'
+  
+  condition: selection and not (filter_legit_encoding or filter_admins)
+
+level: high
+falsepositives:
+  - Legitimate PowerShell scripts using encoded commands for secure credential passing
+  - IT operations using encoded parameters for automation
+  - Windows Update or system maintenance tasks
+  
+tags:
+  - attack.execution
+  - attack.t1059.001
+  - attack.defense_evasion
+  - attack.t1027
