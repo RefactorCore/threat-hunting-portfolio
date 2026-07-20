@@ -1,0 +1,162 @@
+``` 
+=============================================================================
+Splunk SPL — LockBit 3.0 Detection Queries
+Source: Sysmon Event ID 1 (Process Create) via index=endpoint sourcetype=sysmon
+Field mapping: Image, CommandLine, ParentCommandLine, host
+Equivalent detection logic to the SentinelOne queries in sentinelone.md
+=============================================================================
+```
+
+### T1059 — Command and Scripting Interpreter
+
+```spl
+index=endpoint sourcetype=sysmon EventCode=1
+(Image="*\\powershell.exe" OR Image="*\\cmd.exe" OR Image="*\\wscript.exe" OR Image="*\\cscript.exe")
+(CommandLine="*-ExecutionPolicy Bypass*" OR CommandLine="*-NoProfile*" OR CommandLine="*Invoke-WebRequest*"
+ OR CommandLine="*vssadmin delete shadows*" OR CommandLine="*taskkill /F /IM*"
+ OR CommandLine="*schtasks /create /tn*" OR CommandLine="*wmic process call create*")
+NOT ParentCommandLine="*<IT_MANAGEMENT_AGENT_1>*"
+NOT ParentCommandLine="*<PAM_AGENT>*"
+NOT ParentCommandLine="*<VULN_MGMT_AGENT>*"
+NOT ParentCommandLine="*<IT_DISCOVERY_AGENT>*"
+NOT ParentCommandLine="*<HYPERVISOR_TOOLING>*"
+| stats count as cmdline_count by ParentCommandLine, CommandLine
+| sort - cmdline_count
+```
+
+### T1068 — Exploitation for Privilege Escalation
+
+```spl
+index=endpoint sourcetype=sysmon EventCode=1
+(Image="*\\exploit.exe" OR Image="*\\JuicyPotato.exe" OR Image="*\\PrintSpoofer.exe"
+ OR Image="*\\msiexec.exe" OR Image="*\\schtasks.exe")
+NOT ParentCommandLine="*<PATCH_MGMT_AGENT>*"
+NOT ParentCommandLine="*<ENDPOINT_AGENT_UPDATER>*"
+NOT ParentCommandLine="*<VULN_MGMT_AGENT>*"
+NOT ParentCommandLine="*Global\\MSI0000*"
+NOT ParentCommandLine="*ms-teamsupdate.exe*"
+| stats count as cmdline1 by Image, ParentCommandLine
+| sort cmdline1
+```
+
+```spl
+index=endpoint sourcetype=sysmon EventCode=1
+(CommandLine="*SeImpersonatePrivilege*" OR CommandLine="*SeAssignPrimaryTokenPrivilege*"
+ OR CommandLine="*schtasks /create /tn*" OR CommandLine="*msiexec /quiet /qn /i*")
+| stats count as cmdline1 by CommandLine, ParentCommandLine
+```
+
+### T1027 — Obfuscated Files or Information
+
+```spl
+index=endpoint sourcetype=sysmon EventCode=1
+(Image="*\\powershell.exe" OR Image="*\\cmd.exe" OR Image="*\\msiexec.exe"
+ OR Image="*\\rundll32.exe" OR Image="*\\regsvr32.exe")
+(CommandLine="*-Enc*" OR CommandLine="*FromBase64String*" OR CommandLine="*Invoke-Expression*"
+ OR CommandLine="*New-Object System.Net.WebClient*"
+ OR CommandLine="*javascript*mshtml,RunHTMLApplication*" OR CommandLine="*regsvr32 /s /n /u /i*")
+| stats count as process1 by Image, ParentCommandLine
+| sort process1
+```
+
+### T1562.001 — Disable or Modify Security Tools
+
+```spl
+index=endpoint sourcetype=sysmon EventCode=1
+(Image="*\\powershell.exe" OR Image="*\\cmd.exe" OR Image="*\\taskkill.exe"
+ OR Image="*\\wmic.exe" OR Image="*\\sc.exe" OR Image="*\\wevtutil.exe")
+(CommandLine="*Set-MpPreference -DisableRealtimeMonitoring*"
+ OR CommandLine="*Set-MpPreference -DisableBehaviorMonitoring*" OR CommandLine="*taskkill /F /IM*"
+ OR CommandLine="*net stop*" OR CommandLine="*sc stop*" OR CommandLine="*wevtutil cl*")
+NOT ParentCommandLine="*<PATCH_MGMT_AGENT>*"
+| stats count as process1 by Image, ParentCommandLine
+| sort process1
+```
+
+### T1003 — OS Credential Dumping
+
+```spl
+index=endpoint sourcetype=sysmon EventCode=1
+(Image="*\\mimikatz.exe" OR Image="*\\procdump.exe" OR Image="*\\reg.exe" OR Image="*\\ntdsutil.exe")
+NOT ParentCommandLine="*<JAVA_RUNTIME_UPDATER>*"
+NOT ParentCommandLine="*<PATCH_MGMT_AGENT>*"
+NOT ParentCommandLine="*<IT_DISCOVERY_AGENT>*"
+NOT ParentCommandLine="*<ERROR_HANDLING_SCRIPT>*"
+| stats count as process1 by Image, ParentCommandLine
+| sort process1
+```
+
+```spl
+index=endpoint sourcetype=sysmon EventCode=1
+(CommandLine="*sekurlsa::logonpasswords*" OR CommandLine="*sekurlsa::wdigest*"
+ OR CommandLine="*lsadump::sam*" OR CommandLine="*reg save HKLM\\SAM*"
+ OR CommandLine="*ntdsutil*ac i ntds*ifm*create full*")
+```
+
+### T1046 — Network Service Scanning
+
+```spl
+index=endpoint sourcetype=sysmon EventCode=1
+(Image="*\\nmap.exe" OR Image="*\\netscan.exe" OR Image="*\\advanced_port_scanner.exe"
+ OR Image="*\\powershell.exe" OR Image="*\\cmd.exe")
+(CommandLine="*nmap -sS*" OR CommandLine="*Test-NetConnection*" OR CommandLine="*net view*"
+ OR CommandLine="*net use \\\\*")
+| stats count as process1 by Image, ParentCommandLine, host
+| sort process1
+```
+
+### T1021 — Remote Services
+
+```spl
+index=endpoint sourcetype=sysmon EventCode=1
+(Image="*\\mstsc.exe" OR Image="*\\cmd.exe" OR Image="*\\powershell.exe"
+ OR Image="*\\wmic.exe" OR Image="*\\ssh.exe")
+(CommandLine="*cmdkey /generic:TERMSRV*" OR CommandLine="*mstsc /v:*" OR CommandLine="*net use \\\\*"
+ OR CommandLine="*wmic /node:*" OR CommandLine="*New-PSSession -ComputerName*"
+ OR CommandLine="*Invoke-Command -Session*")
+| stats count as process1 by Image, ParentCommandLine, host
+| sort process1
+```
+
+### T1486 — Data Encrypted for Impact
+
+```spl
+index=endpoint sourcetype=sysmon EventCode=1
+(Image="*\\lockbit3.exe" OR Image="*\\vssadmin.exe" OR Image="*\\wbadmin.exe"
+ OR Image="*\\bcdedit.exe" OR Image="*\\powershell.exe")
+(CommandLine="*/encrypt /path:*" OR CommandLine="*vssadmin delete shadows /all /quiet*"
+ OR CommandLine="*bcdedit /set {default} recoveryenabled No*"
+ OR CommandLine="*bcdedit /set {default} bootstatuspolicy ignoreallfailures*"
+ OR CommandLine="*Get-ChildItem -Path \\\\*")
+(ParentCommandLine="*/encrypt /path:*" OR ParentCommandLine="*vssadmin delete shadows /all /quiet*"
+ OR ParentCommandLine="*bcdedit /set {default} recoveryenabled No*"
+ OR ParentCommandLine="*bcdedit /set {default} bootstatuspolicy ignoreallfailures*"
+ OR ParentCommandLine="*Get-ChildItem -Path \\\\*")
+| stats count as process1 by Image, ParentCommandLine, host
+| sort process1
+```
+
+### T1490 — Inhibit System Recovery
+
+```spl
+index=endpoint sourcetype=sysmon EventCode=1
+(CommandLine="*vssadmin delete shadows /all /quiet*" OR CommandLine="*wbadmin delete catalog -quiet*"
+ OR CommandLine="*bcdedit /set {default} recoveryenabled No*"
+ OR CommandLine="*bcdedit /set {default} bootstatuspolicy ignoreallfailures*"
+ OR CommandLine="*wmic shadowcopy delete*"
+ OR CommandLine="*SystemRestore*DisableSR*REG_DWORD*1*")
+| stats count as process1 by CommandLine, ParentCommandLine, host
+| sort process1
+```
+
+### T1489 — Service Stop
+
+```spl
+index=endpoint sourcetype=sysmon EventCode=1
+(Image="*\\taskkill.exe" OR Image="*\\sc.exe" OR Image="*\\net.exe")
+(CommandLine="*taskkill /F /IM*" OR CommandLine="*sc stop*" OR CommandLine="*net stop*"
+ OR CommandLine="*WinDefend*" OR CommandLine="*SecurityHealthService*" OR CommandLine="*MSSQLSERVER*"
+ OR CommandLine="*VSS*" OR CommandLine="*wbengine*" OR CommandLine="*EventLog*")
+| stats count as process1 by CommandLine, ParentCommandLine, host
+| sort process1
+```

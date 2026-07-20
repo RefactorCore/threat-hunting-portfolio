@@ -1,0 +1,109 @@
+/*
+=============================================================================
+Elastic (KQL / EQL) — LockBit 3.0 Detection Queries
+Index: logs-endpoint.events.process-*  (Elastic Common Schema)
+Fields: process.name, process.executable, process.command_line,
+        process.parent.command_line, host.name
+Equivalent detection logic to the SentinelOne queries in sentinelone.md.
+KQL is used for Discover/Lens filtering; EQL is provided for sequence-style
+detection rules in the Elastic Security app.
+=============================================================================
+*/
+
+// -----------------------------------------------------------------------
+// T1059 — Command and Scripting Interpreter (KQL)
+// -----------------------------------------------------------------------
+process.executable : ("*\\powershell.exe" or "*\\cmd.exe" or "*\\wscript.exe" or "*\\cscript.exe")
+and process.command_line : ("*-ExecutionPolicy Bypass*" or "*-NoProfile*" or "*Invoke-WebRequest*"
+  or "*vssadmin delete shadows*" or "*taskkill /F /IM*" or "*schtasks /create /tn*"
+  or "*wmic process call create*")
+and not process.parent.command_line : ("*<IT_MANAGEMENT_AGENT_1>*" or "*<PAM_AGENT>*"
+  or "*<VULN_MGMT_AGENT>*" or "*<IT_DISCOVERY_AGENT>*" or "*<HYPERVISOR_TOOLING>*")
+
+// EQL equivalent
+process where process.name in ("powershell.exe", "cmd.exe", "wscript.exe", "cscript.exe") and
+  process.command_line : ("*-ExecutionPolicy Bypass*", "*-NoProfile*", "*Invoke-WebRequest*",
+    "*vssadmin delete shadows*", "*taskkill /F /IM*", "*schtasks /create /tn*",
+    "*wmic process call create*")
+
+// -----------------------------------------------------------------------
+// T1068 — Exploitation for Privilege Escalation (KQL)
+// -----------------------------------------------------------------------
+process.executable : ("*\\exploit.exe" or "*\\JuicyPotato.exe" or "*\\PrintSpoofer.exe"
+  or "*\\msiexec.exe" or "*\\schtasks.exe")
+and not process.parent.command_line : ("*<PATCH_MGMT_AGENT>*" or "*<ENDPOINT_AGENT_UPDATER>*"
+  or "*<VULN_MGMT_AGENT>*" or "*Global\\MSI0000*" or "*ms-teamsupdate.exe*")
+
+process.command_line : ("*SeImpersonatePrivilege*" or "*SeAssignPrimaryTokenPrivilege*"
+  or "*schtasks /create /tn*" or "*msiexec /quiet /qn /i*")
+
+// -----------------------------------------------------------------------
+// T1027 — Obfuscated Files or Information (KQL)
+// -----------------------------------------------------------------------
+process.executable : ("*\\powershell.exe" or "*\\cmd.exe" or "*\\msiexec.exe" or "*\\rundll32.exe"
+  or "*\\regsvr32.exe")
+and process.command_line : ("*-Enc*" or "*FromBase64String*" or "*Invoke-Expression*"
+  or "*New-Object System.Net.WebClient*" or "*javascript*mshtml,RunHTMLApplication*"
+  or "*regsvr32 /s /n /u /i*")
+
+// -----------------------------------------------------------------------
+// T1562.001 — Disable or Modify Security Tools (KQL)
+// -----------------------------------------------------------------------
+process.executable : ("*\\powershell.exe" or "*\\cmd.exe" or "*\\taskkill.exe" or "*\\wmic.exe"
+  or "*\\sc.exe" or "*\\wevtutil.exe")
+and process.command_line : ("*Set-MpPreference -DisableRealtimeMonitoring*"
+  or "*Set-MpPreference -DisableBehaviorMonitoring*" or "*taskkill /F /IM*" or "*net stop*"
+  or "*sc stop*" or "*wevtutil cl*")
+and not process.parent.command_line : "*<PATCH_MGMT_AGENT>*"
+
+// -----------------------------------------------------------------------
+// T1003 — OS Credential Dumping (KQL)
+// -----------------------------------------------------------------------
+process.executable : ("*\\mimikatz.exe" or "*\\procdump.exe" or "*\\reg.exe" or "*\\ntdsutil.exe")
+and not process.parent.command_line : ("*<JAVA_RUNTIME_UPDATER>*" or "*<PATCH_MGMT_AGENT>*"
+  or "*<IT_DISCOVERY_AGENT>*" or "*<ERROR_HANDLING_SCRIPT>*")
+
+process.command_line : ("*sekurlsa::logonpasswords*" or "*sekurlsa::wdigest*" or "*lsadump::sam*"
+  or "*reg save HKLM\\SAM*" or "*ntdsutil*ac i ntds*ifm*create full*")
+
+// -----------------------------------------------------------------------
+// T1046 — Network Service Scanning (KQL)
+// -----------------------------------------------------------------------
+process.executable : ("*\\nmap.exe" or "*\\netscan.exe" or "*\\advanced_port_scanner.exe"
+  or "*\\powershell.exe" or "*\\cmd.exe")
+and process.command_line : ("*nmap -sS*" or "*Test-NetConnection*" or "*net view*" or "*net use \\\\*")
+
+// -----------------------------------------------------------------------
+// T1021 — Remote Services (KQL)
+// -----------------------------------------------------------------------
+process.executable : ("*\\mstsc.exe" or "*\\cmd.exe" or "*\\powershell.exe" or "*\\wmic.exe"
+  or "*\\ssh.exe")
+and process.command_line : ("*cmdkey /generic:TERMSRV*" or "*mstsc /v:*" or "*net use \\\\*"
+  or "*wmic /node:*" or "*New-PSSession -ComputerName*" or "*Invoke-Command -Session*")
+
+// -----------------------------------------------------------------------
+// T1486 — Data Encrypted for Impact (KQL)
+// -----------------------------------------------------------------------
+process.executable : ("*\\lockbit3.exe" or "*\\vssadmin.exe" or "*\\wbadmin.exe" or "*\\bcdedit.exe"
+  or "*\\powershell.exe")
+and process.command_line : ("*/encrypt /path:*" or "*vssadmin delete shadows /all /quiet*"
+  or "*bcdedit /set {default} recoveryenabled No*"
+  or "*bcdedit /set {default} bootstatuspolicy ignoreallfailures*" or "*Get-ChildItem -Path \\\\*")
+and process.parent.command_line : ("*/encrypt /path:*" or "*vssadmin delete shadows /all /quiet*"
+  or "*bcdedit /set {default} recoveryenabled No*"
+  or "*bcdedit /set {default} bootstatuspolicy ignoreallfailures*" or "*Get-ChildItem -Path \\\\*")
+
+// -----------------------------------------------------------------------
+// T1490 — Inhibit System Recovery (KQL)
+// -----------------------------------------------------------------------
+process.command_line : ("*vssadmin delete shadows /all /quiet*" or "*wbadmin delete catalog -quiet*"
+  or "*bcdedit /set {default} recoveryenabled No*"
+  or "*bcdedit /set {default} bootstatuspolicy ignoreallfailures*" or "*wmic shadowcopy delete*"
+  or "*SystemRestore*DisableSR*REG_DWORD*1*")
+
+// -----------------------------------------------------------------------
+// T1489 — Service Stop (KQL)
+// -----------------------------------------------------------------------
+process.executable : ("*\\taskkill.exe" or "*\\sc.exe" or "*\\net.exe")
+and process.command_line : ("*taskkill /F /IM*" or "*sc stop*" or "*net stop*" or "*WinDefend*"
+  or "*SecurityHealthService*" or "*MSSQLSERVER*" or "*VSS*" or "*wbengine*" or "*EventLog*")

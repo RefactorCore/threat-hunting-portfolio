@@ -1,0 +1,42 @@
+title: LockBit 3.0 File Encryption Activity
+id: d1f2e6a9-4cbe-4f89-bd3a-5b20e4a8d8fd
+status: experimental
+description: |
+  Detects execution of the LockBit 3.0 encryptor binary or the combination of
+  shadow-copy deletion, boot-recovery tampering, and mass file enumeration
+  commands typically observed immediately before or during ransomware
+  encryption.
+references:
+  - https://attack.mitre.org/techniques/T1486/
+author: Detection Engineering Portfolio
+date: 2025-03-06
+modified: 2025-03-13
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_image:
+    Image|endswith:
+      - '\lockbit3.exe'
+      - '\vssadmin.exe'
+      - '\wbadmin.exe'
+      - '\bcdedit.exe'
+      - '\powershell.exe'
+  selection_cmdline:
+    CommandLine|contains:
+      - '/encrypt /path:'
+      - 'vssadmin delete shadows /all /quiet'
+      - 'bcdedit /set {default} recoveryenabled No'
+      - 'bcdedit /set {default} bootstatuspolicy ignoreallfailures'
+      - 'Get-ChildItem -Path \'
+  condition: selection_image and selection_cmdline
+falsepositives:
+  - Legitimate backup and disaster-recovery software that alters boot recovery
+    settings or interacts with shadow copies as part of authorized backup jobs.
+  - This rule is high-fidelity for actual ransomware behavior; false positives
+    are expected to be rare and should be treated as high priority if observed.
+level: critical
+tags:
+  - attack.impact
+  - attack.t1486
+  - ransomware.lockbit

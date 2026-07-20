@@ -1,0 +1,45 @@
+title: LockBit 3.0 Credential Dumping
+id: 7cfa2b1c-312a-4b0a-98f2-8d38d50d567f
+status: experimental
+description: |
+  Detects execution of known credential-dumping utilities (Mimikatz, ProcDump)
+  and command-line patterns for extracting LSASS secrets, SAM hive contents,
+  or NTDS.dit, consistent with LockBit 3.0 credential-access activity.
+references:
+  - https://attack.mitre.org/techniques/T1003/
+author: Detection Engineering Portfolio
+date: 2025-03-06
+modified: 2025-03-13
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_image:
+    Image|endswith:
+      - '\mimikatz.exe'
+      - '\procdump.exe'
+      - '\reg.exe'
+      - '\ntdsutil.exe'
+  selection_cmdline:
+    CommandLine|contains:
+      - 'sekurlsa::logonpasswords'
+      - 'sekurlsa::wdigest'
+      - 'lsadump::sam'
+      - 'reg save HKLM\SAM'
+      - 'ntdsutil "ac i ntds" "ifm" "create full'
+  condition: selection_image and selection_cmdline
+falsepositives:
+  - reg.exe invoked for benign registry queries unrelated to SAM/SECURITY hives
+    (e.g. querying vendor-specific keys), which will not match on command-line
+    content but may still match on image path alone if the selection is loosened.
+  - LOLBAS abuse potential from terminal/console host binaries (e.g. OpenConsole.exe)
+    that can spawn reg.exe as a child process when not launched by the expected
+    parent (Windows Terminal). This pattern warrants investigation even though
+    it is not itself credential dumping.
+  - Legitimate forensic, backup, or migration tooling that exports registry
+    hives for authorized purposes.
+level: high
+tags:
+  - attack.credential_access
+  - attack.t1003
+  - ransomware.lockbit
